@@ -1,0 +1,28 @@
+const express = require('express');
+const app = express();
+const PORT = 3001;
+
+const consumo = {
+  total: 3620,
+  hoje: 9.8,
+  custo: 6.50,
+  pico: 4580,Rename-Item -Path "npm init -y npm install express" -NewName "server.js"
+node server.js
+  comodos: {
+    cozinha: 850,
+    sala: 420,
+    quarto: 150,
+    chuveiro: 2000,
+    arCond: 600,
+    maquinaLavar: 400
+  }
+};
+
+app.get('/api/consumo', (req, res) => {
+  res.json(consumo);
+});
+
+app.listen(PORT, () => {
+  console.log(`Backend rodando na porta ${PORT}`);
+});
+
