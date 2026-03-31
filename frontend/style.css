@@ -27,6 +27,39 @@ header{
 	backdrop-filter: blur(6px);
 	margin-bottom:12px;
 }
+
+/* Header layout: título à esquerda, ações (login/hamburger) à direita */
+.header-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.header-actions{position:relative;display:flex;align-items:center;gap:8px}
+.user-btn{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:0;background:rgba(255,255,255,0.02);color:var(--muted);cursor:pointer}
+.user-btn:hover{filter:brightness(1.05)}
+.user-avatar{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(90deg,var(--accent-4),var(--accent-3));color:#051023;font-weight:800}
+.user-name{font-weight:700;color:#e8f2ff}
+.hamburger{font-size:18px;opacity:0.9}
+
+/* menu dropdown */
+.user-menu{position:absolute;right:0;top:calc(100% + 10px);min-width:220px;background:var(--card);border-radius:10px;padding:10px;box-shadow:0 12px 30px rgba(2,6,23,0.45);border:1px solid rgba(255,255,255,0.04);display:none}
+.user-menu.show{display:block}
+.user-panel{display:flex;flex-direction:column;gap:8px}
+.user-panel .info{display:flex;flex-direction:column;gap:4px;padding:6px}
+.user-panel .info .u-name{font-weight:800;color:#ecf6ff}
+.user-panel .info .u-email{font-size:12px;color:var(--muted)}
+.login-form{display:flex;flex-direction:column;gap:8px}
+.login-form input{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+.login-form button{padding:8px;border-radius:8px;border:0;background:linear-gradient(90deg,var(--accent-1),var(--accent-2));color:#081222;font-weight:700;cursor:pointer}
+.user-actions{display:flex;gap:8px;justify-content:flex-end}
+.user-actions button{padding:8px 10px;border-radius:8px;border:0;cursor:pointer}
+
+/* Registro / validação */
+.toggle-forms{display:flex;gap:6px;margin-bottom:8px}
+.toggle-forms button{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:transparent;color:var(--muted);cursor:pointer}
+.toggle-forms button.active{background:linear-gradient(90deg,var(--accent-4),var(--accent-3));color:#051023;font-weight:800}
+.register-form, .login-form{display:flex;flex-direction:column;gap:8px}
+.register-form input, .login-form input{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+.register-form .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.error-msg{color:#ffb3b3;font-size:13px;padding:6px 8px;border-radius:6px;background:rgba(255,107,107,0.06);border:1px solid rgba(255,107,107,0.06)}
+.small-note{font-size:12px;color:var(--muted)}
+
 .indicators{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
 .card{background:linear-gradient(135deg,var(--glass),rgba(255,255,255,0.02));padding:14px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.35);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.03)}
 .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px}

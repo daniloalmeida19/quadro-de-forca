@@ -10,7 +10,21 @@
 <body>
   <main class="container">
     <header>
-      <h1>Monitoramento de Consumo do Danilo</h1>
+      <div class="header-row">
+        <h1>Monitoramento de Consumo do Danilo</h1>
+        <div class="header-actions">
+          <button id="user-btn" class="user-btn" aria-haspopup="true" aria-expanded="false">
+            <span class="user-avatar">D</span>
+            <span class="user-name">Entrar</span>
+            <span class="hamburger" aria-hidden="true">☰</span>
+          </button>
+          <div id="user-menu" class="user-menu" role="menu" aria-hidden="true">
+            <div class="user-panel" id="user-panel">
+              <!-- preenchido dinamicamente -->
+            </div>
+          </div>
+        </div>
+      </div>
     </header>
 
     <section class="indicators">
