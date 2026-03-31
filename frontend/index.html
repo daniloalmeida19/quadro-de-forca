@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Quadro de Força — Dashboard</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>Monitoramento de Consumo</h1>
+    </header>
+
+    <section class="indicators">
+      <div class="card">
+        <div class="label">Consumo Total</div>
+        <div id="total-watts" class="value">-- W</div>
+      </div>
+      <div class="card">
+        <div class="label">Consumo Diário</div>
+        <div id="daily-kwh" class="value">-- kWh</div>
+      </div>
+      <div class="card">
+        <div class="label">Custo Estimado</div>
+        <div id="cost" class="value">--</div>
+      </div>
+      <div class="card">
+        <div class="label">Pico</div>
+        <div id="peak" class="value">-- W</div>
+      </div>
+    </section>
+
+    <section class="charts">
+      <div class="chart-card">
+        <h3>Consumo por Cômodo/Aparelho</h3>
+        <canvas id="barChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Evolução Diária</h3>
+        <canvas id="lineChart"></canvas>
+      </div>
+    </section>
+
+    <section class="rooms">
+      <!-- Painéis pequenos por cômodo/aparelho -->
+      <div id="rooms-grid" class="rooms-grid" aria-live="polite"></div>
+    </section>
+
+    <section class="status-row">
+      <div class="load">
+        <div class="label">Nível de Carga</div>
+        <div class="progress"><div id="load-bar" class="progress-fill" style="width:0%"></div></div>
+        <div id="load-percent">0%</div>
+      </div>
+      <div class="actions">
+        <button id="export-csv">Exportar CSV</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
