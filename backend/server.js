@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const nodemailer = require('nodemailer');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -30,8 +32,10 @@ app.get('/', (req, res) => {
 app.use(express.json());
 
 // POST /api/notify - envia email usando nodemailer
-app.post('/api/notify', async (req, res) => {
-  const { to, subject, message } = req.body || {};
+app.post('/api/notify', upload.single('attachment'), async (req, res) => {
+  // accepts both application/json (no file) and multipart/form-data (with file)
+  const body = req.body || {};
+  const { to, subject, message } = body;
   if(!to || !message){
     return res.status(400).json({ ok:false, error: 'Campos "to" e "message" são obrigatórios.' });
   }
@@ -50,6 +54,11 @@ app.post('/api/notify', async (req, res) => {
     subject: subject || 'Relatório — Quadro de Força',
     text: typeof message === 'string' ? message : JSON.stringify(message, null, 2)
   };
+
+  // se houver arquivo enviado via multipart (campo 'attachment'), anexa ao email
+  if(req.file && req.file.buffer){
+    mailOptions.attachments = [{ filename: req.file.originalname || 'relatorio.pdf', content: req.file.buffer }];
+  }
 
   try{
     const info = await transporter.sendMail(mailOptions);

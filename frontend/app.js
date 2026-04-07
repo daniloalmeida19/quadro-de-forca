@@ -15,6 +15,40 @@ function setPricePerKWh(v){
   if(typeof v === 'number' && Number.isFinite(v) && v > 0){ localStorage.setItem('qd_pricePerKWh', String(v)); }
 }
 
+// normaliza diferentes formatos da API para o shape esperado pelo frontend
+function normalizeApiData(json){
+  if(!json) return { totalWatts:0, dailyKwh:0, peak:0, maxCapacity:5000, byDevice:[], dailySeries:[] };
+  const data = {};
+  data.totalWatts = Number(json.totalWatts ?? json.total_watts ?? json.total_watts_value ?? 0);
+  data.dailyKwh = Number(json.dailyKwh ?? json.hoje_kwh ?? json.daily_kwh ?? json.hoje_kwh ?? 0);
+  data.peak = Number(json.peak ?? json.pico_watts ?? json.pico ?? 0);
+  data.maxCapacity = Number(json.maxCapacity ?? json.max_capacity ?? 5000);
+
+  // byDevice: aceita array já no formato ou objeto 'comodos'
+  if(Array.isArray(json.byDevice) && json.byDevice.length){
+    data.byDevice = json.byDevice.map(d=> ({ name: d.name || d.device || d.aparelho || '—', watts: Number(d.watts ?? d.potencia ?? 0), kwh: d.kwh ?? d.daily_kwh }));
+  }else if(json.comodos && typeof json.comodos === 'object'){
+    data.byDevice = Object.entries(json.comodos).map(([k,v])=>({ name: String(k).charAt(0).toUpperCase() + String(k).slice(1), watts: Number(v || 0) }));
+  }else{
+    data.byDevice = (json.devices && Array.isArray(json.devices)) ? json.devices.map(d=>({ name: d.name||'—', watts: Number(d.watts||0) })) : [];
+  }
+
+  data.dailySeries = json.dailySeries ?? json.series ?? json.daily_series ?? null;
+  return data;
+}
+
+// busca endereço via ViaCEP (retorna null se não encontrado)
+async function fetchAddressByCep(cep){
+  try{
+    if(!cep || !/^[0-9]{8}$/.test(cep)) return null;
+    const res = await fetch('https://viacep.com.br/ws/' + cep + '/json/');
+    if(!res.ok) return null;
+    const j = await res.json();
+    if(j.erro) return null;
+    return { street: j.logradouro || '', city: j.localidade || '', state: j.uf || '' };
+  }catch(e){ return null; }
+}
+
 function $(id){return document.getElementById(id)}
 
 function updateIndicators(data){
@@ -145,14 +179,15 @@ async function fetchData(){
     const res = await fetch(API_BASE + '/consumo');
     if(!res.ok) throw new Error('status ' + res.status);
     const json = await res.json();
-    // adaptar séries conforme período selecionado
-    json.dailySeriesForPeriod = getSeriesForPeriod(json, currentPeriod);
-    updateIndicators(json);
-    updateCharts(json);
-    checkAlerts(json);
-    renderRoomPanels(json);
-    latestData = json;
-    return json;
+    // normaliza formato da API para o objeto usado pelo frontend
+    const data = normalizeApiData(json);
+    data.dailySeriesForPeriod = getSeriesForPeriod(data, currentPeriod);
+    updateIndicators(data);
+    updateCharts(data);
+    checkAlerts(data);
+    renderRoomPanels(data);
+    latestData = data;
+    return data;
   }catch(err){
     console.warn('Não foi possível obter dados do backend:', err);
     // fallback demo
@@ -281,9 +316,67 @@ async function exportPDF(data){
       for(const imgData of charts){ await addImageToPdf(imgData, true); }
     }catch(e){ console.warn('Erro ao capturar gráficos para o PDF', e); }
 
+    // salva localmente
     pdf.save('consumo_por_aparelho.pdf');
-    try{ notifyAfterExport(data); }catch(e){}
+    // se usuário ativo e prefere envio automático, envie o PDF como anexo para o backend
+    try{
+      const user = getSessionUser();
+      if(user && user.preferences && user.preferences.autoSend && user.email){
+        // obter blob do PDF e enviar via multipart
+        try{
+          const blob = pdf.output('blob');
+          const form = new FormData();
+          form.append('to', user.email);
+          form.append('subject', 'Relatório — Quadro de Força');
+          form.append('message', `Relatório gerado em ${new Date().toLocaleString()}. Custo estimado: R$ ${(((data.dailyKwh ?? 0) * getPricePerKWh()).toFixed ? ((data.dailyKwh ?? 0) * getPricePerKWh()).toFixed(2) : (data.dailyKwh ?? 0))}`);
+          form.append('attachment', blob, 'consumo_por_aparelho.pdf');
+          const resp = await fetch(API_BASE + '/notify', { method: 'POST', body: form });
+          if(!resp.ok) console.warn('Envio do PDF falhou', await resp.text());
+        }catch(err){ console.warn('Erro ao enviar PDF ao backend', err); }
+      }
+    }catch(e){ console.warn('notifyAfterExport erro', e); }
   }finally{ document.body.removeChild(el); }
+}
+
+// mostra um toast temporário
+function showToast(msg, type='info', timeout=3500){
+  try{
+    const t = document.createElement('div'); t.className = 'toast ' + (type === 'success' ? 'success' : (type === 'error' ? 'error' : ''));
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(()=>{ t.style.opacity = '0'; setTimeout(()=>t.remove(),400); }, timeout);
+  }catch(e){ console.warn('showToast', e); }
+}
+
+// Gera PDF em memória e envia ao backend (sem salvar localmente)
+async function sendPdfByEmail(data){
+  try{
+    // criar resumo/tabela DOM e renderizar
+    const el = createTableElement(data);
+    el.style.position='fixed'; el.style.left='-9999px'; document.body.appendChild(el);
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+    const summaryData = canvas.toDataURL('image/jpeg', 0.95);
+    const { jsPDF } = window.jspdf || {};
+    if(!jsPDF){ showToast('jsPDF não disponível no navegador', 'error'); document.body.removeChild(el); return; }
+    const pdf = new jsPDF('p','pt','a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    async function addImageToPdf(imgData, addNewPage){
+      const img = new Image(); img.src = imgData; await new Promise(res=>img.onload = res);
+      const margin = 28; const maxW = pageWidth - margin*2; const ratio = img.width / img.height; const drawW = Math.min(maxW, img.width); const drawH = drawW / ratio;
+      if(addNewPage) pdf.addPage(); pdf.addImage(imgData, 'JPEG', margin, 20, drawW, drawH);
+    }
+    await addImageToPdf(summaryData, false);
+    // capturar charts
+    try{ const barCanvas = document.getElementById('barChart'); const lineCanvas = document.getElementById('lineChart'); const charts = []; if(barCanvas && typeof barCanvas.toDataURL === 'function') charts.push(barCanvas.toDataURL('image/jpeg',0.95)); if(lineCanvas && typeof lineCanvas.toDataURL === 'function') charts.push(lineCanvas.toDataURL('image/jpeg',0.95)); for(const img of charts) await addImageToPdf(img, true); }catch(e){ console.warn('Erro ao capturar gráficos', e); }
+    const blob = pdf.output('blob');
+    document.body.removeChild(el);
+    // enviar via FormData
+    const user = getSessionUser();
+    if(!user || !user.email){ showToast('Usuário não logado ou e-mail ausente', 'error'); return; }
+    const form = new FormData(); form.append('to', user.email); form.append('subject', 'Relatório — Quadro de Força'); form.append('message', `Relatório gerado em ${new Date().toLocaleString()}.`); form.append('attachment', blob, 'consumo_por_aparelho.pdf');
+    showToast('Enviando relatório...', 'info', 2000);
+    const resp = await fetch(API_BASE + '/notify', { method: 'POST', body: form });
+    if(resp.ok){ showToast('Relatório enviado por e-mail', 'success'); } else { const txt = await resp.text(); showToast('Falha ao enviar: '+txt, 'error', 6000); }
+  }catch(e){ console.error('sendPdfByEmail', e); showToast('Erro ao gerar/enviar PDF', 'error', 6000); }
 }
 
 async function sendNotification(user, message){
@@ -475,6 +568,23 @@ function showLoginForm(container){
   `;
   const err = document.createElement('div'); err.className='error-msg'; err.style.display='none'; container.appendChild(err);
   container.appendChild(form);
+  // autocomplete de CEP (ViaCEP) ao perder foco
+  try{
+    const cepInput = form.querySelector('input[name="cep"]');
+    const streetInput = form.querySelector('input[name="street"]');
+    const cityInput = form.querySelector('input[name="city"]');
+    const stateInput = form.querySelector('input[name="state"]');
+    if(cepInput){
+      cepInput.addEventListener('blur', async ()=>{
+        try{
+          const cep = (cepInput.value||'').replace(/\D/g,'');
+          if(!/^[0-9]{8}$/.test(cep)) return;
+          const addr = await fetchAddressByCep(cep);
+          if(addr){ if(streetInput && !streetInput.value) streetInput.value = addr.street || ''; if(cityInput && !cityInput.value) cityInput.value = addr.city || ''; if(stateInput && !stateInput.value) stateInput.value = addr.state || ''; }
+        }catch(e){}
+      });
+    }
+  }catch(e){}
   form.addEventListener('submit', async (ev)=>{
     ev.preventDefault(); err.style.display='none';
     const fd = new FormData(form); const email = fd.get('email'); const pwd = fd.get('password');
@@ -568,8 +678,10 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(periodSel){ periodSel.value = currentPeriod; periodSel.addEventListener('change',(e)=>{ setPeriod(e.target.value); if(latestData){ latestData.dailySeriesForPeriod = getSeriesForPeriod(latestData, currentPeriod); updateCharts(latestData); } }); }
   const pdfBtn = document.getElementById('export-pdf');
   const jpgBtn = document.getElementById('export-jpg');
+  const sendEmailBtn = document.getElementById('send-email');
   if(pdfBtn) pdfBtn.addEventListener('click', ()=>exportPDF(latestData || {}));
   if(jpgBtn) jpgBtn.addEventListener('click', ()=>exportJPG(latestData || {}));
+  if(sendEmailBtn) sendEmailBtn.addEventListener('click', ()=>{ sendPdfByEmail(latestData || {}); });
 
   const userBtn = document.getElementById('user-btn');
   if(userBtn){ userBtn.addEventListener('click', (e)=>{ e.stopPropagation(); toggleUserMenu(); }); }

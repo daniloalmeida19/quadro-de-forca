@@ -120,5 +120,38 @@ header{
 	.container{padding:12px;margin:12px}
 }
 
+
+/* ajustes adicionais para tablets e celulares pequenos */
+@media(max-width:700px){
+	header h1{font-size:18px}
+	.chart-card{height:280px; padding:10px}
+	.chart-card canvas{height:calc(100% - 36px) !important}
+	.charts{grid-template-columns:1fr}
+	.actions{display:flex;flex-direction:column;gap:8px}
+	.actions button,#export-csv,#export-pdf,#export-jpg{width:100%;box-sizing:border-box}
+	.controls-row{flex-direction:column;align-items:stretch;gap:8px}
+	.controls{width:100%;justify-content:flex-start}
+	.controls select{width:100%}
+	.user-menu{left:12px;right:12px}
+	.rooms-grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+}
+
+@media(max-width:420px){
+	.container{padding:12px;margin:12px}
+	.chart-card{height:220px}
+	.chart-card canvas{height:160px !important}
+	.indicators{grid-template-columns:1fr}
+	.user-btn{padding:10px}
+	.user-avatar{width:30px;height:30px}
+}
+
+/* Toast / feedback */
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;background:rgba(6,22,36,0.95);color:#e8f6ff;padding:10px 14px;border-radius:8px;z-index:12000;box-shadow:0 6px 20px rgba(0,0,0,0.4);font-weight:600}
+.toast.success{background:linear-gradient(90deg,#6be5a8,#6bb8ff);color:#032033}
+.toast.error{background:linear-gradient(90deg,#ff6b6b,#ffb86b);color:#270b0b}
+
+/* Make action buttons touch-friendly */
+.actions button, #export-csv, #export-pdf, #export-jpg, #send-email{padding:12px 14px;border-radius:10px;border:0;background:linear-gradient(90deg,var(--accent-1),var(--accent-2));color:#081222;font-weight:700;cursor:pointer}
+.actions button:active{transform:translateY(1px)}
 /* garante que canvas não cause deslocamento ao carregar */
 canvas{max-width:100%;display:block}
