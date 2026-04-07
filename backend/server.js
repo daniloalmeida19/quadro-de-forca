@@ -1,4 +1,6 @@
+require('dotenv').config();
 const express = require('express');
+const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -23,6 +25,39 @@ app.get('/api/consumo', (req, res) => {
 
 app.get('/', (req, res) => {
   res.send('Quadro de Força - Backend rodando');
+});
+
+app.use(express.json());
+
+// POST /api/notify - envia email usando nodemailer
+app.post('/api/notify', async (req, res) => {
+  const { to, subject, message } = req.body || {};
+  if(!to || !message){
+    return res.status(400).json({ ok:false, error: 'Campos "to" e "message" são obrigatórios.' });
+  }
+
+  // configura transporte SMTP via variáveis de ambiente
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT,10) : undefined,
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined
+  });
+
+  const mailOptions = {
+    from: process.env.FROM_EMAIL || process.env.SMTP_USER || 'no-reply@quadrodeforca.local',
+    to,
+    subject: subject || 'Relatório — Quadro de Força',
+    text: typeof message === 'string' ? message : JSON.stringify(message, null, 2)
+  };
+
+  try{
+    const info = await transporter.sendMail(mailOptions);
+    return res.json({ ok:true, info });
+  }catch(err){
+    console.error('Erro enviando e-mail', err);
+    return res.status(500).json({ ok:false, error: String(err) });
+  }
 });
 
 app.listen(PORT, () => {

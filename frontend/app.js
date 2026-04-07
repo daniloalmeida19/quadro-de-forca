@@ -117,6 +117,7 @@ function exportCSV(data){
   const a = document.createElement('a');
   a.href = url; a.download = 'consumo_por_aparelho.csv'; a.click();
   URL.revokeObjectURL(url);
+  try{ notifyAfterExport(data); }catch(e){}
 }
 
 function createTableElement(data){
@@ -162,6 +163,7 @@ async function exportJPG(data){
   el.style.position='fixed'; el.style.left='-9999px'; document.body.appendChild(el);
   try{ await exportAsImageFromElement(el, 'consumo_por_aparelho.jpg', 'image/jpeg'); }
   finally{ document.body.removeChild(el); }
+  try{ notifyAfterExport(data); }catch(e){}
 }
 
 async function exportPDF(data){
@@ -175,6 +177,7 @@ async function exportPDF(data){
     if(!pdf){
       // fallback: download image if jsPDF not available
       const a = document.createElement('a'); a.href = imgData; a.download = 'consumo_por_aparelho.jpg'; a.click();
+      try{ notifyAfterExport(data); }catch(e){}
       return;
     }
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -186,7 +189,40 @@ async function exportPDF(data){
     const w = imgW * ratio; const h = imgH * ratio;
     pdf.addImage(imgData, 'JPEG', (pageWidth - w) / 2, 20, w, h);
     pdf.save('consumo_por_aparelho.pdf');
+    try{ notifyAfterExport(data); }catch(e){}
   }finally{ document.body.removeChild(el); }
+}
+
+async function sendNotification(user, message){
+  // tenta endpoint backend
+  try{
+    await fetch(API_BASE + '/notify', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ to: user.email, phone: user.phone, method: user.preferences?.notifyMethod, message }) });
+    try{ alert('Notificação enviada (tentativa via backend).'); }catch(e){}
+    return;
+  }catch(e){}
+  // fallback: abrir mailto / sms
+  const method = user.preferences?.notifyMethod || 'email';
+  const phone = (user.phone||'').replace(/\D/g,'');
+  if((method === 'email' || method === 'both') && user.email){
+    const subject = encodeURIComponent('Relatório — Quadro de Força');
+    const body = encodeURIComponent(message);
+    window.open(`mailto:${user.email}?subject=${subject}&body=${body}`);
+  }
+  if((method === 'sms' || method === 'both') && phone){
+    const body = encodeURIComponent(message);
+    window.open(`sms:${phone}?body=${body}`);
+  }
+  if(!( (method==='email' && user.email) || (method==='sms' && phone) || (method==='both' && (user.email || phone)) )){
+    try{ alert('Não foi possível enviar notificação automaticamente. Contato ausente.'); }catch(e){}
+  }
+}
+
+function notifyAfterExport(data){
+  const user = getSessionUser();
+  if(!user || !user.preferences || !user.preferences.autoSend) return;
+  const cost = (((data.dailyKwh ?? 0) * getPricePerKWh()).toFixed ? ((data.dailyKwh ?? 0) * getPricePerKWh()).toFixed(2) : (data.dailyKwh ?? 0));
+  const msg = `Relatório gerado em ${new Date().toLocaleString()}. Custo estimado: R$ ${cost}`;
+  try{ sendNotification(user, msg); }catch(e){ console.warn('notifyAfterExport erro', e); }
 }
 
 /* ---------------- User menu / login (localStorage simple) ---------------- */
@@ -232,6 +268,11 @@ function renderUserPanel(){
       addr.textContent = `${user.address.street}${user.address.number? ', ' + user.address.number: ''} — ${user.address.city}/${user.address.state} — CEP ${user.address.cep}`;
       info.appendChild(addr);
     }
+    if(user.preferences){
+      const pref = document.createElement('div'); pref.className='u-pref small-note'; pref.style.marginTop='6px';
+      pref.textContent = `Envio automático: ${user.preferences.autoSend? 'Sim' : 'Não'} — Método: ${user.preferences.notifyMethod || 'email'}`;
+      info.appendChild(pref);
+    }
     const actions = document.createElement('div'); actions.className='user-actions';
     const btnLogout = document.createElement('button'); btnLogout.textContent='Sair'; btnLogout.addEventListener('click',()=>{ clearSessionUser(); updateUserButton(); renderUserPanel(); closeUserMenu(); });
     actions.appendChild(btnLogout);
@@ -247,6 +288,13 @@ function renderUserPanel(){
     });
     priceWrap.appendChild(priceLabel); priceWrap.appendChild(priceInput); priceWrap.appendChild(priceBtn);
     actions.appendChild(priceWrap);
+    // botão de teste de notificação
+    const testBtn = document.createElement('button'); testBtn.type='button'; testBtn.textContent='Enviar notificação de teste'; testBtn.style.marginLeft='8px';
+    testBtn.addEventListener('click', ()=>{
+      const msg = `Teste de notificação: Relatório gerado em ${new Date().toLocaleString()}.`;
+      sendNotification(user, msg);
+    });
+    actions.appendChild(testBtn);
     panel.appendChild(info); panel.appendChild(actions);
   }else{
     // Tabs: Login / Cadastrar
@@ -330,6 +378,14 @@ function showRegisterForm(container){
       <input type="text" name="state" placeholder="Estado (UF)" required />
       <input type="password" name="password" placeholder="Senha (mín. 6)" required />
     </div>
+    <div class="grid">
+      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="autoSend" /> Enviar relatório automaticamente</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label><input type="radio" name="notifyMethod" value="email" checked /> E-mail</label>
+        <label><input type="radio" name="notifyMethod" value="sms" /> Celular (SMS)</label>
+        <label><input type="radio" name="notifyMethod" value="both" /> Ambos</label>
+      </div>
+    </div>
     <input type="password" name="password2" placeholder="Confirmar senha" required />
     <div style="display:flex;gap:8px;justify-content:flex-end"><button type="submit">Criar conta</button></div>
   `;
@@ -353,12 +409,18 @@ function showRegisterForm(container){
     if(findUserByEmail(email)){ err.textContent='Já existe uma conta com esse e-mail.'; err.style.display='block'; return; }
     if(!/^[0-9]{8}$/.test(cep)){ err.textContent='CEP inválido. Informe 8 dígitos.'; err.style.display='block'; return; }
     if(!street || !city || !state){ err.textContent='Preencha rua, cidade e estado.'; err.style.display='block'; return; }
+    const autoSend = !!fd.get('autoSend');
+    const notifyMethod = (fd.get('notifyMethod')||'email');
+    if(autoSend){
+      if(notifyMethod === 'email' && !email){ err.textContent='Para ativar envio por e-mail, informe um e-mail válido.'; err.style.display='block'; return; }
+      if((notifyMethod === 'sms' || notifyMethod === 'both') && !phoneDigits){ err.textContent='Para ativar envio por SMS, informe telefone válido.'; err.style.display='block'; return; }
+    }
     const h = await hashPassword(pwd);
     const users = getRegisteredUsers();
-    const newUser = { name, phone: phoneDigits, email, passwordHash: h, address: { cep, street, number, city, state } };
+    const newUser = { name, phone: phoneDigits, email, passwordHash: h, address: { cep, street, number, city, state }, preferences: { autoSend, notifyMethod } };
     users.push(newUser); saveRegisteredUsers(users);
     // criar sessão sem expor hash
-    setSessionUser({ name, email, phone: phoneDigits, address: newUser.address });
+    setSessionUser({ name, email, phone: phoneDigits, address: newUser.address, preferences: newUser.preferences });
     updateUserButton(); renderUserPanel(); closeUserMenu();
   });
 }
