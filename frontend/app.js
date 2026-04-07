@@ -4,10 +4,30 @@ const API_BASE = '/api'; // ajusta se seu backend usar outro prefixo
 function getPricePerKWh(){
   const v = parseFloat(localStorage.getItem('qd_pricePerKWh'));
   return Number.isFinite(v) && v > 0 ? v : 0.8;
-}
-function setPricePerKWh(v){ localStorage.setItem('qd_pricePerKWh', String(v)); }
-
-let barChart, lineChart;
+    // normalizar formatos: backend pode retornar snake_case (ex: total_watts, hoje_kwh, comodos)
+    let data = json;
+    if(json && (json.total_watts !== undefined || json.hoje_kwh !== undefined || json.comodos)){
+      const byDevice = [];
+      if(json.comodos && typeof json.comodos === 'object'){
+        for(const [k,v] of Object.entries(json.comodos)) byDevice.push({ name: k.charAt(0).toUpperCase() + k.slice(1), watts: v });
+      }
+      data = {
+        totalWatts: json.total_watts ?? json.totalWatts,
+        dailyKwh: json.hoje_kwh ?? json.dailyKwh ?? json.hoje_kwh,
+        peak: json.pico_watts ?? json.peak,
+        maxCapacity: json.maxCapacity ?? 5000,
+        byDevice,
+        dailySeries: json.dailySeries || null
+      };
+    }
+    // adaptar séries conforme período selecionado
+    data.dailySeriesForPeriod = getSeriesForPeriod(data, currentPeriod);
+    updateIndicators(data);
+    updateCharts(data);
+    checkAlerts(data);
+    renderRoomPanels(data);
+    latestData = data;
+    return data;
 
 function $(id){return document.getElementById(id)}
 
@@ -22,7 +42,14 @@ function updateIndicators(data){
 }
 
 function createCharts(){
-  const bctx = $('barChart').getContext('2d');
+  try{
+    if(typeof Chart === 'undefined'){
+      console.error('Chart.js não carregado. Verifique o <script> em index.html');
+      const card = document.querySelector('.chart-card'); if(card) card.insertAdjacentHTML('afterbegin','<div style="color:#ffb3b3;padding:8px">Erro: Chart.js não carregado</div>');
+      return;
+    }
+    const bEl = $('barChart'); if(!bEl){ console.warn('Elemento #barChart não encontrado'); return; }
+    const bctx = bEl.getContext('2d');
   // paleta vibrante
   const palette = ['#FF6B6B','#FFB86B','#6BE5A8','#6BB8FF','#C86BFF','#FF6BB0'];
   barChart = new Chart(bctx, {
@@ -31,32 +58,82 @@ function createCharts(){
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}
   });
 
-  const lctx = $('lineChart').getContext('2d');
+    const lEl = $('lineChart'); if(!lEl){ console.warn('Elemento #lineChart não encontrado'); }
+    const lctx = lEl ? lEl.getContext('2d') : null;
   // gradiente para a linha
-  const grad = lctx.createLinearGradient(0,0,0,260);
-  grad.addColorStop(0,'rgba(107,184,255,0.95)');
-  grad.addColorStop(1,'rgba(107,229,168,0.6)');
-  lineChart = new Chart(lctx, {
-    type: 'line',
-    data: {labels: [], datasets:[{label:'kWh',borderColor:grad,backgroundColor:'rgba(107,184,255,0.08)',fill:true,data:[]}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}
-  });
+    if(lctx){
+      const grad = lctx.createLinearGradient(0,0,0,260);
+      grad.addColorStop(0,'rgba(107,184,255,0.95)');
+      grad.addColorStop(1,'rgba(107,229,168,0.6)');
+      lineChart = new Chart(lctx, {
+        type: 'line',
+        data: {labels: [], datasets:[{label:'kWh',borderColor:grad,backgroundColor:'rgba(107,184,255,0.08)',fill:true,data:[]}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}
+      });
+    }
+  }catch(e){ console.error('Erro ao criar gráficos', e); const card = document.querySelector('.chart-card'); if(card) card.insertAdjacentHTML('afterbegin','<div style="color:#ffb3b3;padding:8px">Erro ao criar gráficos: '+(e.message||e)+'</div>'); }
 }
 
 function updateCharts(data){
-  if(data.byDevice){
-    barChart.data.labels = data.byDevice.map(d=>d.name);
-    barChart.data.datasets[0].data = data.byDevice.map(d=>d.watts);
-    // aplicar cores cíclicas da paleta
-    const palette = ['#FF6B6B','#FFB86B','#6BE5A8','#6BB8FF','#C86BFF','#FF6BB0'];
-    barChart.data.datasets[0].backgroundColor = data.byDevice.map((_,i)=>palette[i % palette.length]);
-    barChart.update();
+  // garante que os charts estão iniciados
+  if(!barChart || !lineChart) createCharts();
+  if(data.byDevice && data.byDevice.length){
+    try{
+      barChart.data.labels = data.byDevice.map(d=>d.name);
+      barChart.data.datasets[0].data = data.byDevice.map(d=>Number(d.watts || 0));
+      // aplicar cores cíclicas da paleta
+      const palette = ['#FF6B6B','#FFB86B','#6BE5A8','#6BB8FF','#C86BFF','#FF6BB0'];
+      barChart.data.datasets[0].backgroundColor = data.byDevice.map((_,i)=>palette[i % palette.length]);
+      barChart.update();
+    }catch(e){ console.warn('updateCharts (bar) falhou', e); }
+  }else{
+    // sem dados: limpar gráfico e exibir mensagem
+    if(barChart){ barChart.data.labels = []; barChart.data.datasets[0].data = []; barChart.update(); }
+    const grid = document.getElementById('rooms-grid'); if(grid) grid.innerHTML = '<div style="color:var(--muted)">Nenhum dado de cômodos disponível.</div>';
   }
-  if(data.dailySeries){
-    lineChart.data.labels = data.dailySeries.map(p=>p.time);
-    lineChart.data.datasets[0].data = data.dailySeries.map(p=>p.kwh);
+  const series = data.dailySeriesForPeriod || data.dailySeries || [];
+  if(series){
+    lineChart.data.labels = series.map(p=>p.time);
+    lineChart.data.datasets[0].data = series.map(p=>p.kwh);
     lineChart.update();
   }
+}
+
+function getSeriesForPeriod(data, period){
+  // Se o backend fornecer séries por período, respeita; caso contrário, adapta demo dailySeries
+  const src = data.dailySeries || [];
+  if(period === 'day') return src;
+  if(period === 'week'){
+    // agregar em 7 pontos: somar 7 blocos do array (simulação)
+    const out = [];
+    for(let i=0;i<7;i++){
+      const val = src[i % src.length]?.kwh || 1 + Math.random()*3;
+      out.push({ time: ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][i], kwh: Number((val).toFixed(2)) });
+    }
+    return out;
+  }
+  if(period === 'month'){
+    const out = [];
+    for(let i=1;i<=12;i++) out.push({ time: String(i).padStart(2,'0') + '/M', kwh: Number((2 + Math.random()*6).toFixed(2)) });
+    return out;
+  }
+  return src;
+}
+
+function checkAlerts(data){
+  try{
+    const user = getSessionUser();
+    const prefs = user?.preferences || JSON.parse(localStorage.getItem('qd_alert_prefs') || 'null') || {};
+    const enabled = prefs.enableAlert || false;
+    const threshold = Number(prefs.thresholdKwh || localStorage.getItem('qd_threshold_kwh') || 0);
+    const banner = document.getElementById('alert-banner');
+    if(!banner) return;
+    if(enabled && threshold > 0 && (data.dailyKwh ?? 0) > threshold){
+      banner.style.display = 'block';
+      // destacar custo
+      const costEl = document.getElementById('cost'); if(costEl) costEl.classList.add('accent');
+    }else{ banner.style.display = 'none'; const costEl = document.getElementById('cost'); if(costEl) costEl.classList.remove('accent'); }
+  }catch(e){ console.warn('checkAlerts', e); }
 }
 
 function renderRoomPanels(data){
@@ -80,8 +157,11 @@ async function fetchData(){
     const res = await fetch(API_BASE + '/consumo');
     if(!res.ok) throw new Error('status ' + res.status);
     const json = await res.json();
+    // adaptar séries conforme período selecionado
+    json.dailySeriesForPeriod = getSeriesForPeriod(json, currentPeriod);
     updateIndicators(json);
     updateCharts(json);
+    checkAlerts(json);
     renderRoomPanels(json);
     return json;
   }catch(err){
@@ -97,7 +177,8 @@ async function fetchData(){
       ],
       dailySeries: [{time:'Manhã',kwh:3.2},{time:'Tarde',kwh:5.1},{time:'Noite',kwh:4.04}]
     };
-    updateIndicators(demo); updateCharts(demo); renderRoomPanels(demo);
+    demo.dailySeriesForPeriod = getSeriesForPeriod(demo, currentPeriod);
+    updateIndicators(demo); updateCharts(demo); checkAlerts(demo); renderRoomPanels(demo);
     return demo;
   }
 }
@@ -170,24 +251,46 @@ async function exportPDF(data){
   const el = createTableElement(data);
   el.style.position='fixed'; el.style.left='-9999px'; document.body.appendChild(el);
   try{
+    // render resumo/tabela
     const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    const summaryData = canvas.toDataURL('image/jpeg', 0.95);
     const { jsPDF } = window.jspdf || {};
     const pdf = jsPDF ? new jsPDF('p','pt','a4') : null;
     if(!pdf){
       // fallback: download image if jsPDF not available
-      const a = document.createElement('a'); a.href = imgData; a.download = 'consumo_por_aparelho.jpg'; a.click();
+      const a = document.createElement('a'); a.href = summaryData; a.download = 'consumo_por_aparelho.jpg'; a.click();
       try{ notifyAfterExport(data); }catch(e){}
       return;
     }
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const img = new Image(); img.src = imgData;
-    await new Promise((res)=>{ img.onload = res; });
-    const imgW = img.width; const imgH = img.height;
-    const ratio = Math.min(pageWidth / imgW, pageHeight / imgH);
-    const w = imgW * ratio; const h = imgH * ratio;
-    pdf.addImage(imgData, 'JPEG', (pageWidth - w) / 2, 20, w, h);
+
+    // helper to add an image to PDF scaled to page width with margins
+    async function addImageToPdf(imgData, addNewPage){
+      const img = new Image(); img.src = imgData;
+      await new Promise((res)=>{ img.onload = res; });
+      const margin = 28;
+      const maxW = pageWidth - margin * 2;
+      const ratio = img.width / img.height;
+      const drawW = Math.min(maxW, img.width);
+      const drawH = drawW / ratio;
+      if(addNewPage) pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', margin, 20, drawW, drawH);
+    }
+
+    // adicionar resumo na primeira página
+    await addImageToPdf(summaryData, false);
+
+    // capturar gráficos (barChart e lineChart) se existirem e adicionar cada um em nova página
+    try{
+      const barCanvas = document.getElementById('barChart');
+      const lineCanvas = document.getElementById('lineChart');
+      const charts = [];
+      if(barCanvas && typeof barCanvas.toDataURL === 'function') charts.push(barCanvas.toDataURL('image/jpeg', 0.95));
+      if(lineCanvas && typeof lineCanvas.toDataURL === 'function') charts.push(lineCanvas.toDataURL('image/jpeg', 0.95));
+      for(const imgData of charts){ await addImageToPdf(imgData, true); }
+    }catch(e){ console.warn('Erro ao capturar gráficos para o PDF', e); }
+
     pdf.save('consumo_por_aparelho.pdf');
     try{ notifyAfterExport(data); }catch(e){}
   }finally{ document.body.removeChild(el); }
@@ -288,6 +391,24 @@ function renderUserPanel(){
     });
     priceWrap.appendChild(priceLabel); priceWrap.appendChild(priceInput); priceWrap.appendChild(priceBtn);
     actions.appendChild(priceWrap);
+    // alertas inteligentes: configurar limite
+    const alertWrap = document.createElement('div'); alertWrap.style.marginTop='8px'; alertWrap.style.display='flex'; alertWrap.style.gap='8px'; alertWrap.style.alignItems='center';
+    const alertChk = document.createElement('input'); alertChk.type='checkbox'; alertChk.id='enable-alerts'; alertChk.checked = user.preferences?.enableAlert || (localStorage.getItem('qd_alert_enable')==='true');
+    const alertLabel = document.createElement('label'); alertLabel.htmlFor='enable-alerts'; alertLabel.textContent = 'Ativar alertas';
+    const threshInput = document.createElement('input'); threshInput.type='number'; threshInput.placeholder='Limite kWh'; threshInput.style.width='110px'; threshInput.value = user.preferences?.thresholdKwh ?? localStorage.getItem('qd_threshold_kwh') || '';
+    const alertSave = document.createElement('button'); alertSave.type='button'; alertSave.textContent='Salvar alerta'; alertSave.style.marginLeft='6px';
+    alertSave.addEventListener('click', ()=>{
+      const enable = !!alertChk.checked;
+      const thresh = Number(threshInput.value || 0);
+      // persistir nas preferências do usuário (se existir) e em localStorage
+      updateCurrentUserPreferences({ preferences: { ...(user.preferences||{}), enableAlert: enable, thresholdKwh: thresh } });
+      localStorage.setItem('qd_alert_enable', enable ? 'true' : 'false');
+      localStorage.setItem('qd_threshold_kwh', String(thresh));
+      alert('Preferências de alerta salvas.');
+      checkAlerts({ dailyKwh: latestData?.dailyKwh ?? 0 });
+    });
+    alertWrap.appendChild(alertChk); alertWrap.appendChild(alertLabel); alertWrap.appendChild(threshInput); alertWrap.appendChild(alertSave);
+    actions.appendChild(alertWrap);
     // botão de teste de notificação
     const testBtn = document.createElement('button'); testBtn.type='button'; testBtn.textContent='Enviar notificação de teste'; testBtn.style.marginLeft='8px';
     testBtn.addEventListener('click', ()=>{
@@ -313,6 +434,26 @@ function renderUserPanel(){
     // default
     showLoginForm(cont);
   }
+}
+
+function updateCurrentUserPreferences(updates){
+  try{
+    const session = getSessionUser();
+    if(!session || !session.email) return;
+    const users = getRegisteredUsers();
+    const idx = users.findIndex(u=>u.email && u.email.toLowerCase() === session.email.toLowerCase());
+    if(idx >= 0){
+      users[idx] = { ...users[idx], ...updates };
+      saveRegisteredUsers(users);
+      // update session store
+      const merged = { ...session, ...(updates.preferences ? { preferences: updates.preferences } : {}) };
+      setSessionUser(merged);
+      renderUserPanel();
+    }else{
+      // se usuário não estiver cadastrado (fallback), apenas salvar prefs local
+      if(updates.preferences){ localStorage.setItem('qd_alert_enable', updates.preferences.enableAlert ? 'true' : 'false'); localStorage.setItem('qd_threshold_kwh', String(updates.preferences.thresholdKwh || '')); }
+    }
+  }catch(e){ console.warn('updateCurrentUserPreferences', e); }
 }
 
 function updateUserButton(){
@@ -430,10 +571,11 @@ document.addEventListener('click',(e)=>{ const menu=document.getElementById('use
 document.addEventListener('DOMContentLoaded',()=>{
   try{ window.scrollTo(0,0); }catch(e){}
   createCharts();
-  let latestData = null;
   fetchData().then(d=>latestData = d);
-  setInterval(async ()=>{ latestData = await fetchData(); },5000);
+  setInterval(async ()=>{ latestData = await fetchData(); latestData = latestData; },5000);
   $('export-csv').addEventListener('click',()=>exportCSV(latestData || {}));
+  const periodSel = document.getElementById('period-select');
+  if(periodSel){ periodSel.value = currentPeriod; periodSel.addEventListener('change',(e)=>{ setPeriod(e.target.value); if(latestData){ latestData.dailySeriesForPeriod = getSeriesForPeriod(latestData, currentPeriod); updateCharts(latestData); } }); }
   const pdfBtn = document.getElementById('export-pdf');
   const jpgBtn = document.getElementById('export-jpg');
   if(pdfBtn) pdfBtn.addEventListener('click', ()=>exportPDF(latestData || {}));

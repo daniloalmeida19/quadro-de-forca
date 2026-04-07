@@ -87,6 +87,11 @@ header{
 
 #export-csv{padding:10px 14px;border-radius:10px;border:0;background:linear-gradient(90deg,var(--accent-1),var(--accent-2));color:#081222;font-weight:700;cursor:pointer}
 
+.controls-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}
+.controls{display:flex;align-items:center;gap:8px}
+.controls select{padding:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+.alert-banner{background:linear-gradient(90deg,#ff6b6b33,#ffb86b33);padding:8px 12px;border-radius:8px;color:#ffefef;font-weight:700;border:1px solid rgba(255,107,107,0.12)}
+
 .value.accent{color:var(--accent-3)}
 
 /* Responsividade: desktop / tablet / mobile */
@@ -100,6 +105,7 @@ header{
 	.chart-card{height:260px}
 	.status-row{flex-direction:column;align-items:flex-start}
 	.rooms-grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+	.controls-row{flex-direction:column;align-items:flex-start;gap:8px}
 }
 
 @media(max-width:600px){
