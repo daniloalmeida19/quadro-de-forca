@@ -1,33 +1,19 @@
 // Configurações iniciais
 const API_BASE = '/api'; // ajusta se seu backend usar outro prefixo
+// variáveis globais de estado do frontend
+let barChart = null;
+let lineChart = null;
+let latestData = null;
+let currentPeriod = localStorage.getItem('qd_period') || 'day';
 
 function getPricePerKWh(){
   const v = parseFloat(localStorage.getItem('qd_pricePerKWh'));
   return Number.isFinite(v) && v > 0 ? v : 0.8;
-    // normalizar formatos: backend pode retornar snake_case (ex: total_watts, hoje_kwh, comodos)
-    let data = json;
-    if(json && (json.total_watts !== undefined || json.hoje_kwh !== undefined || json.comodos)){
-      const byDevice = [];
-      if(json.comodos && typeof json.comodos === 'object'){
-        for(const [k,v] of Object.entries(json.comodos)) byDevice.push({ name: k.charAt(0).toUpperCase() + k.slice(1), watts: v });
-      }
-      data = {
-        totalWatts: json.total_watts ?? json.totalWatts,
-        dailyKwh: json.hoje_kwh ?? json.dailyKwh ?? json.hoje_kwh,
-        peak: json.pico_watts ?? json.peak,
-        maxCapacity: json.maxCapacity ?? 5000,
-        byDevice,
-        dailySeries: json.dailySeries || null
-      };
-    }
-    // adaptar séries conforme período selecionado
-    data.dailySeriesForPeriod = getSeriesForPeriod(data, currentPeriod);
-    updateIndicators(data);
-    updateCharts(data);
-    checkAlerts(data);
-    renderRoomPanels(data);
-    latestData = data;
-    return data;
+}
+
+function setPricePerKWh(v){
+  if(typeof v === 'number' && Number.isFinite(v) && v > 0){ localStorage.setItem('qd_pricePerKWh', String(v)); }
+}
 
 function $(id){return document.getElementById(id)}
 
@@ -152,6 +138,8 @@ function renderRoomPanels(data){
   });
 }
 
+
+
 async function fetchData(){
   try{
     const res = await fetch(API_BASE + '/consumo');
@@ -163,6 +151,7 @@ async function fetchData(){
     updateCharts(json);
     checkAlerts(json);
     renderRoomPanels(json);
+    latestData = json;
     return json;
   }catch(err){
     console.warn('Não foi possível obter dados do backend:', err);
@@ -179,6 +168,7 @@ async function fetchData(){
     };
     demo.dailySeriesForPeriod = getSeriesForPeriod(demo, currentPeriod);
     updateIndicators(demo); updateCharts(demo); checkAlerts(demo); renderRoomPanels(demo);
+    latestData = demo;
     return demo;
   }
 }
@@ -395,7 +385,7 @@ function renderUserPanel(){
     const alertWrap = document.createElement('div'); alertWrap.style.marginTop='8px'; alertWrap.style.display='flex'; alertWrap.style.gap='8px'; alertWrap.style.alignItems='center';
     const alertChk = document.createElement('input'); alertChk.type='checkbox'; alertChk.id='enable-alerts'; alertChk.checked = user.preferences?.enableAlert || (localStorage.getItem('qd_alert_enable')==='true');
     const alertLabel = document.createElement('label'); alertLabel.htmlFor='enable-alerts'; alertLabel.textContent = 'Ativar alertas';
-    const threshInput = document.createElement('input'); threshInput.type='number'; threshInput.placeholder='Limite kWh'; threshInput.style.width='110px'; threshInput.value = user.preferences?.thresholdKwh ?? localStorage.getItem('qd_threshold_kwh') || '';
+    const threshInput = document.createElement('input'); threshInput.type='number'; threshInput.placeholder='Limite kWh'; threshInput.style.width='110px'; threshInput.value = (user.preferences?.thresholdKwh ?? localStorage.getItem('qd_threshold_kwh')) || '';
     const alertSave = document.createElement('button'); alertSave.type='button'; alertSave.textContent='Salvar alerta'; alertSave.style.marginLeft='6px';
     alertSave.addEventListener('click', ()=>{
       const enable = !!alertChk.checked;
