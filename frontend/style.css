@@ -10,7 +10,7 @@
 }
 
 *{box-sizing:border-box;font-family:Inter,Segoe UI,Arial,sans-serif}
-body{margin:0;background:linear-gradient(135deg,#071426 0%, #10233a 50%, #0f172a 100%);color:#ecf2ff}
+body{text-align:center;background0;background:linear-gradient(135deg,#071426 0%, #10233a 50%, #0f172a 100%);color:#ecf2ff}
 .container{max-width:1100px;margin:28px auto;padding:20px}
 header h1{margin:0 0 18px 0;font-size:24px;letter-spacing:0.3px}
 
@@ -26,6 +26,7 @@ header{
 	border:1px solid rgba(255,255,255,0.03);
 	backdrop-filter: blur(6px);
 	margin-bottom:12px;
+	text-align: center;
 }
 
 /* Header layout: título à esquerda, ações (login/hamburger) à direita */
